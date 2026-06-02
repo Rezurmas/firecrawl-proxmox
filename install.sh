@@ -678,10 +678,39 @@ install_system_deps() {
 
     export DEBIAN_FRONTEND=noninteractive
 
+    # Usuń stare pliki repozytoriów Dockera (z poprzednich nieudanych prób)
+    # Remove old Docker repo files from previous failed attempts
+    if [[ -f /etc/apt/sources.list.d/docker.list ]]; then
+        log_info "Removing old docker.list (incompatible with Debian 13)..."
+        rm -f /etc/apt/sources.list.d/docker.list
+    fi
+    if [[ -f /etc/apt/sources.list.d/docker.sources ]] && ! grep -q 'Signed-By: /etc/apt/keyrings/docker.asc' /etc/apt/sources.list.d/docker.sources 2>/dev/null; then
+        log_info "Removing broken docker.sources (missing valid signature)..."
+        rm -f /etc/apt/sources.list.d/docker.sources
+    fi
+    # Usuń również stary klucz .gpg (niekompatybilny z Debianem 13 / sqv)
+    # Also remove old .gpg key (incompatible with Debian 13 / sqv)
+    if [[ -f /etc/apt/keyrings/docker.gpg ]]; then
+        log_info "Removing old docker.gpg (incompatible with Debian 13 sqv)..."
+        rm -f /etc/apt/keyrings/docker.gpg
+    fi
+
     start_spinner "Updating package lists (apt update)..."
-    apt update -qq 2>&1 | tail -1
-    kill_spinner
-    box_ok "Package lists updated"
+    if apt update -qq 2>&1 | tail -1; then
+        kill_spinner
+        box_ok "Package lists updated"
+    else
+        local apt_exit=$?
+        kill_spinner
+        box_err "apt update FAILED (code ${apt_exit})!"
+        box_err "  Possible causes / Możliwe przyczyny:"
+        box_err "  1. Stale/broken repo in /etc/apt/sources.list.d/"
+        box_err "     → Remove manually: rm /etc/apt/sources.list.d/docker.*"
+        box_err "  2. No internet — check: ping 8.8.8.8"
+        box_err "  3. DNS failure — check: cat /etc/resolv.conf"
+        box_bot
+        exit 1
+    fi
 
     start_spinner "Installing: curl wget git gnupg ca-certificates..."
     apt install -y -qq curl wget git gnupg ca-certificates lsb-release \
@@ -728,6 +757,13 @@ install_docker() {
 
     # POPRAWIONA metoda dla Debiana 13: .asc zamiast .gpg, .sources zamiast .list!
     log_info "Adding official Docker repository..."
+
+    # Wyczyść wszystkie stare pliki repozytoriów Dockera / Clean all old Docker repo files
+    rm -f /etc/apt/sources.list.d/docker.list
+    rm -f /etc/apt/sources.list.d/docker.sources
+    rm -f /etc/apt/keyrings/docker.gpg
+    rm -f /etc/apt/keyrings/docker.asc
+
     install -m 0755 -d /etc/apt/keyrings
 
     if ! retry "Download Docker GPG key" download \
