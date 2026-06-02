@@ -1,0 +1,17 @@
+# Pliki wrażliwe (zawierają hasła)
+.env
+.env.credentials
+*.backup.*
+
+# System
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yaml.bak
+
+# Backup hasel
+credentials.txt
+secrets.txt

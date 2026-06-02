@@ -1,0 +1,83 @@
+# =============================================================================
+# docker-compose.override.yaml — Firecrawl production hardening
+# =============================================================================
+# UWAGA: Ten plik jest OPCJONALNY.
+# Główna podmiana build→image dzieje się automatycznie w install.sh.
+#
+# Ten override dodaje:
+#   - restart: unless-stopped dla wszystkich serwisów
+#   - healthcheck dla playwright-service i nuq-postgres (jeśli brak w upstream)
+#   - log rotation (max-size / max-file) dla wszystkich serwisów
+#   - Dziedziczy obrazy GHCR z install.sh (image: ghcr.io/...)
+#
+# Jeśli chcesz użyć override ręcznie (bez install.sh):
+#   1. Najpierw w oryginalnym docker-compose.yaml ZAKOMENTUJ wszystkie linie
+#      zaczynające się od 'build:'  —  inaczej obrazy będą kompilowane lokalnie!
+#   2. Umieść ten plik obok docker-compose.yaml Firecrawla
+#   3. docker compose up -d  # Docker automatycznie scali oba pliki
+#
+# Alternatywnie: po prostu odpal install.sh — zrobi to za Ciebie.
+# =============================================================================
+
+services:
+  playwright-service:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/scrape"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+  api:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+  nuq-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres:latest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-firecrawl} -d ${POSTGRES_DB:-firecrawl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      start_interval: 2s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+  redis:
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+        compress: "true"
+
+  rabbitmq:
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+        compress: "true"

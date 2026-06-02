@@ -1,0 +1,84 @@
+# =============================================================================
+# Firecrawl Systemd Service — Hardened for production
+# =============================================================================
+# Instalacja:
+#   sudo cp firecrawl.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now firecrawl
+#
+# Zarządzanie / Management:
+#   systemctl status firecrawl    — sprawdź status / check status
+#   systemctl restart firecrawl   — restart
+#   systemctl stop firecrawl      — zatrzymaj / stop
+#   journalctl -u firecrawl -f    — logi na żywo / live logs
+#
+# Hardening / Security:
+#   ProtectSystem=strict  — /usr, /boot, /etc read-only
+#   ProtectHome=true      — /home, /root, /run/user inaccessible
+#   NoNewPrivileges=true  — block privilege escalation
+#   MemoryDenyWriteExecute=true — W^X policy (if supported by kernel)
+# =============================================================================
+
+[Unit]
+Description=Firecrawl Web Scraping API
+Documentation=https://docs.firecrawl.dev
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/firecrawl
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down --timeout 60
+ExecReload=/usr/bin/docker compose restart
+StandardOutput=journal
+StandardError=journal
+Restart=on-failure
+RestartSec=15
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/opt/firecrawl /var/lib/docker
+RestrictRealtime=true
+RestrictSUIDSGID=true
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+# ===== Security Hardening =====
+# Filesystem protection
+ReadOnlyPaths=/etc/docker
+
+# Kernel protection
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+
+# Restrict capabilities
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restrict namespaces
+RestrictNamespaces=true
+
+# Memory protection (W^X)
+MemoryDenyWriteExecute=true
+
+# Lock personality
+LockPersonality=true
+
+# Restrict system calls to native architecture only
+SystemCallArchitectures=native
+
+# Restrict address families to those Docker needs
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# Set umask for created files
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
