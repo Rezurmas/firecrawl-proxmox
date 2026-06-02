@@ -678,39 +678,58 @@ install_system_deps() {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    # Usuń stare pliki repozytoriów Dockera (z poprzednich nieudanych prób)
-    # Remove old Docker repo files from previous failed attempts
-    if [[ -f /etc/apt/sources.list.d/docker.list ]]; then
-        log_info "Removing old docker.list (incompatible with Debian 13)..."
-        rm -f /etc/apt/sources.list.d/docker.list
-    fi
-    if [[ -f /etc/apt/sources.list.d/docker.sources ]] && ! grep -q 'Signed-By: /etc/apt/keyrings/docker.asc' /etc/apt/sources.list.d/docker.sources 2>/dev/null; then
-        log_info "Removing broken docker.sources (missing valid signature)..."
-        rm -f /etc/apt/sources.list.d/docker.sources
-    fi
-    # Usuń również stary klucz .gpg (niekompatybilny z Debianem 13 / sqv)
-    # Also remove old .gpg key (incompatible with Debian 13 / sqv)
+    # === BEZWZGLĘDNIE usuń wszystkie stare pliki repozytoriów Dockera ===
+    # === UNCONDITIONALLY remove all old Docker repo files ===
+    # To naprawia błąd "repository is not signed" przy ponownym uruchomieniu skryptu
+    # This fixes "repository is not signed" error on script re-run
+    local cleaned=0
+    for f in /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources; do
+        if [[ -f "$f" ]]; then
+            log_info "Removing stale repo file: $f"
+            rm -f "$f"
+            cleaned=1
+        fi
+    done
+    # Usuń też stare klucze — będą pobrane od nowa w install_docker()
+    # Also remove old keys — they will be re-downloaded in install_docker()
     if [[ -f /etc/apt/keyrings/docker.gpg ]]; then
-        log_info "Removing old docker.gpg (incompatible with Debian 13 sqv)..."
+        log_info "Removing old docker.gpg (incompatible with Debian 13 sqv verifier)"
         rm -f /etc/apt/keyrings/docker.gpg
+        cleaned=1
+    fi
+    if [[ -f /etc/apt/keyrings/docker.asc ]]; then
+        log_info "Removing existing docker.asc (will re-download fresh)"
+        rm -f /etc/apt/keyrings/docker.asc
+        cleaned=1
+    fi
+    if [[ $cleaned -eq 1 ]]; then
+        log_info "Cleaned old Docker repo files — fresh setup will follow"
     fi
 
-    start_spinner "Updating package lists (apt update)..."
-    if apt update -qq 2>&1 | tail -1; then
-        kill_spinner
-        box_ok "Package lists updated"
-    else
+    box_line "Running apt update..."
+    # Najpierw kill spinner, potem apt update (bez spinnera — output jest zbyt ważny)
+    # Kill spinner first, then apt update (no spinner — output is too important)
+    local apt_output
+    apt_output=$(apt update -qq 2>&1) || {
         local apt_exit=$?
-        kill_spinner
-        box_err "apt update FAILED (code ${apt_exit})!"
-        box_err "  Possible causes / Możliwe przyczyny:"
-        box_err "  1. Stale/broken repo in /etc/apt/sources.list.d/"
-        box_err "     → Remove manually: rm /etc/apt/sources.list.d/docker.*"
-        box_err "  2. No internet — check: ping 8.8.8.8"
-        box_err "  3. DNS failure — check: cat /etc/resolv.conf"
+        echo ""
+        log_error "apt update FAILED (exit code ${apt_exit})"
+        log_error "Output:"
+        echo "${apt_output}" | grep -i 'error\|fail\|signed\|certificate\|trixie' | head -10
+        log_error ""
+        log_error "Possible causes / Możliwe przyczyny:"
+        log_error "  1. Broken repo in /etc/apt/sources.list.d/"
+        log_error "     → ls /etc/apt/sources.list.d/"
+        log_error "     → Clean manually: rm /etc/apt/sources.list.d/docker.*"
+        log_error "  2. No internet — check: ping 8.8.8.8"
+        log_error "  3. DNS failure — check: cat /etc/resolv.conf"
+        log_error "  4. apt/dpkg locked — check: lsof /var/lib/dpkg/lock-frontend"
+        log_error ""
+        log_error "For interactive fix, run: apt update"
         box_bot
         exit 1
-    fi
+    }
+    box_ok "Package lists updated (no errors)"
 
     start_spinner "Installing: curl wget git gnupg ca-certificates..."
     apt install -y -qq curl wget git gnupg ca-certificates lsb-release \
